@@ -19,30 +19,35 @@ type Config struct {
 
 func NewDefaultConfig() *Config {
 	return &Config{
-		WorkDuration:  45 * time.Minute,
-		RestDuration:  5 * time.Minute,
-		DelayDuration: 5 * time.Minute,
+		//WorkDuration:  45 * time.Minute,
+		//RestDuration:  5 * time.Minute,
+		//DelayDuration: 5 * time.Minute,
+		WorkDuration:  1 * time.Second,
+		RestDuration:  5 * time.Second,
+		DelayDuration: 5 * time.Second,
 	}
 }
 
 type Manager struct {
-	c                   *Config
-	wChan, rChan, dChan chan struct{}
-	Done                chan struct{}
-	wg                  sync.WaitGroup
-	window              *walk.MainWindow
-	te                  *walk.TextEdit
-	delay               bool
+	c                          *Config
+	wChan, rChan, dChan, sChan chan struct{}
+	stopRestCh                 chan struct{}
+	Done                       chan struct{}
+	wg                         sync.WaitGroup
+	window                     *walk.MainWindow
+	te                         *walk.TextEdit
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		c:      NewDefaultConfig(),
-		wChan:  make(chan struct{}),
-		rChan:  make(chan struct{}),
-		dChan:  make(chan struct{}),
-		Done:   make(chan struct{}),
-		window: new(walk.MainWindow),
+		c:          NewDefaultConfig(),
+		wChan:      make(chan struct{}),
+		rChan:      make(chan struct{}),
+		dChan:      make(chan struct{}),
+		sChan:      make(chan struct{}),
+		stopRestCh: make(chan struct{}),
+		Done:       make(chan struct{}),
+		window:     new(walk.MainWindow),
 	}
 }
 
@@ -59,6 +64,9 @@ func (m *Manager) handle() {
 		case <-m.dChan:
 			m.wg.Add(1)
 			go m.handleDelay()
+		case <-m.sChan:
+			m.wg.Add(1)
+			go m.handleSkip()
 		case <-m.Done:
 			fmt.Println("handle Done")
 			return
@@ -66,13 +74,18 @@ func (m *Manager) handle() {
 	}
 }
 
+func (m *Manager) handleSkip() {
+	defer m.wg.Done()
+	m.stopRestCh <- struct{}{}
+	m.wChan <- struct{}{}
+}
+
 func (m *Manager) handleDelay() {
 	defer m.wg.Done()
-	m.delay = true
 	m.window.SetVisible(false)
+	m.stopRestCh <- struct{}{}
 	select {
 	case <-time.After(m.c.DelayDuration):
-		m.delay = false
 		m.rChan <- struct{}{}
 	case <-m.Done:
 		fmt.Println("handleWork Done")
@@ -101,9 +114,6 @@ func (m *Manager) handleRest() {
 	for {
 		select {
 		case <-t.C:
-			if m.delay {
-				return
-			}
 			left--
 			m.te.SetText(fmt.Sprintf("%d", left))
 			if left == 0 {
@@ -112,6 +122,9 @@ func (m *Manager) handleRest() {
 			}
 		case <-m.Done:
 			fmt.Println("handleRest Done")
+			return
+		case <-m.stopRestCh:
+			fmt.Println("handleRest Stop")
 			return
 		}
 	}
@@ -136,6 +149,12 @@ func (m *Manager) CreateMain() {
 				},
 			},
 			PushButton{
+				Text: "Skip",
+				OnClicked: func() {
+					m.sChan <- struct{}{}
+				},
+			},
+			PushButton{
 				Text: "Quit",
 				OnClicked: func() {
 					m.Close()
@@ -149,7 +168,7 @@ func (m *Manager) CreateMain() {
 	yScreen := win.GetSystemMetrics(win.SM_CYSCREEN)
 	win.SetWindowPos(
 		m.window.Handle(),
-		0,
+		win.HWND_TOPMOST,
 		0,
 		0,
 		xScreen,
