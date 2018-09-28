@@ -19,9 +19,14 @@ type Config struct {
 
 func NewDefaultConfig() *Config {
 	return &Config{
-		//WorkDuration:  45 * time.Minute,
-		//RestDuration:  5 * time.Minute,
-		//DelayDuration: 5 * time.Minute,
+		WorkDuration:  45 * time.Minute,
+		RestDuration:  5 * time.Minute,
+		DelayDuration: 5 * time.Minute,
+	}
+}
+
+func NewTestConfig() *Config {
+	return &Config{
 		WorkDuration:  1 * time.Second,
 		RestDuration:  5 * time.Second,
 		DelayDuration: 5 * time.Second,
