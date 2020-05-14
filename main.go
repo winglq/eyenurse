@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
+	"github.com/winglq/eyenurse/monitor"
 )
 
 type Config struct {
@@ -40,20 +42,30 @@ type Manager struct {
 	Done                       chan struct{}
 	wg                         sync.WaitGroup
 	window                     *walk.MainWindow
+	nonMainMonitorWins         []*walk.MainWindow
 	te                         *walk.TextEdit
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		c:          NewDefaultConfig(),
-		wChan:      make(chan struct{}),
-		rChan:      make(chan struct{}),
-		dChan:      make(chan struct{}),
-		sChan:      make(chan struct{}),
-		stopRestCh: make(chan struct{}),
-		Done:       make(chan struct{}),
-		window:     new(walk.MainWindow),
+		c:                  NewDefaultConfig(),
+		wChan:              make(chan struct{}),
+		rChan:              make(chan struct{}),
+		dChan:              make(chan struct{}),
+		sChan:              make(chan struct{}),
+		stopRestCh:         make(chan struct{}),
+		Done:               make(chan struct{}),
+		window:             new(walk.MainWindow),
+		nonMainMonitorWins: make([]*walk.MainWindow, len(monitor.Rects)-1),
 	}
+}
+
+func (m *Manager) setWinsVisible(visible bool) {
+	m.window.SetVisible(visible)
+	for _, w := range m.nonMainMonitorWins {
+		w.SetVisible(visible)
+	}
+
 }
 
 func (m *Manager) handle() {
@@ -87,7 +99,7 @@ func (m *Manager) handleSkip() {
 
 func (m *Manager) handleDelay() {
 	defer m.wg.Done()
-	m.window.SetVisible(false)
+	m.setWinsVisible(false)
 	m.stopRestCh <- struct{}{}
 	select {
 	case <-time.After(m.c.DelayDuration):
@@ -100,7 +112,7 @@ func (m *Manager) handleDelay() {
 
 func (m *Manager) handleWork() {
 	defer m.wg.Done()
-	m.window.SetVisible(false)
+	m.setWinsVisible(false)
 	select {
 	case <-time.After(m.c.WorkDuration):
 		m.rChan <- struct{}{}
@@ -112,7 +124,7 @@ func (m *Manager) handleWork() {
 
 func (m *Manager) handleRest() {
 	defer m.wg.Done()
-	m.window.SetVisible(true)
+	m.setWinsVisible(true)
 	t := time.NewTicker(time.Second)
 	left := int(m.c.RestDuration.Seconds())
 	m.te.SetText(fmt.Sprintf("%d", left))
@@ -138,6 +150,30 @@ func (m *Manager) handleRest() {
 func (m *Manager) Close() {
 	close(m.Done)
 	m.wg.Wait()
+}
+
+func (m *Manager) CreateNonMain() {
+	rects := monitor.Rects[1:]
+	for i, r := range rects {
+		MainWindow{
+			Visible:  false,
+			AssignTo: &m.nonMainMonitorWins[i],
+			Layout:   VBox{},
+			Children: []Widget{},
+		}.Create()
+		win.SetWindowLong(m.window.Handle(), win.GWL_STYLE, win.WS_BORDER)
+		win.SetWindowPos(
+			m.nonMainMonitorWins[i].Handle(),
+			win.HWND_TOPMOST,
+			r.Left,
+			r.Top,
+			r.Width(),
+			r.Height(),
+			win.SWP_FRAMECHANGED,
+		)
+		log.Printf("non main %d %d %d %d", r.Left, r.Top, r.Width(), r.Height())
+	}
+
 }
 
 func (m *Manager) CreateMain() {
@@ -180,6 +216,7 @@ func (m *Manager) CreateMain() {
 		yScreen,
 		win.SWP_FRAMECHANGED,
 	)
+	log.Printf("main %d %d %d %d", 0, 0, xScreen, yScreen)
 }
 
 func (m *Manager) RunWindow() {
@@ -195,6 +232,7 @@ func (m *Manager) Run() {
 func main() {
 	m := NewManager()
 	m.CreateMain()
+	m.CreateNonMain()
 	m.Run()
 	m.RunWindow()
 }
