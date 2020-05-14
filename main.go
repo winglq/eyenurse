@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gonutz/w32"
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
@@ -48,6 +49,7 @@ type Manager struct {
 
 func NewManager() *Manager {
 	return &Manager{
+		//c: NewTestConfig(),
 		c:                  NewDefaultConfig(),
 		wChan:              make(chan struct{}),
 		rChan:              make(chan struct{}),
@@ -56,16 +58,13 @@ func NewManager() *Manager {
 		stopRestCh:         make(chan struct{}),
 		Done:               make(chan struct{}),
 		window:             new(walk.MainWindow),
-		nonMainMonitorWins: make([]*walk.MainWindow, len(monitor.Rects)-1),
+		nonMainMonitorWins: []*walk.MainWindow{},
 	}
 }
 
 func (m *Manager) setWinsVisible(visible bool) {
 	m.window.SetVisible(visible)
-	for _, w := range m.nonMainMonitorWins {
-		w.SetVisible(visible)
-	}
-
+	m.SetNonMainVisible(visible)
 }
 
 func (m *Manager) handle() {
@@ -152,16 +151,54 @@ func (m *Manager) Close() {
 	m.wg.Wait()
 }
 
+func (m *Manager) AddNonMain(r w32.RECT) *walk.MainWindow {
+	var w *walk.MainWindow
+	MainWindow{
+		Visible:  false,
+		AssignTo: &w,
+		Layout:   VBox{},
+		Children: []Widget{},
+	}.Create()
+	win.SetWindowLong(m.window.Handle(), win.GWL_STYLE, win.WS_BORDER)
+	win.SetWindowPos(
+		w.Handle(),
+		win.HWND_TOPMOST,
+		r.Left,
+		r.Top,
+		r.Width(),
+		r.Height(),
+		win.SWP_FRAMECHANGED,
+	)
+	log.Printf("non main %d %d %d %d", r.Left, r.Top, r.Width(), r.Height())
+	return w
+
+}
+
 func (m *Manager) CreateNonMain() {
-	rects := monitor.Rects[1:]
+	rects := monitor.GetMonitorRects()[1:]
+	for _, r := range rects {
+		w := m.AddNonMain(r)
+		m.nonMainMonitorWins = append(m.nonMainMonitorWins, w)
+	}
+}
+
+func (m *Manager) DestroyNonMain() {
+	for _, w := range m.nonMainMonitorWins {
+		w.Close()
+	}
+	m.nonMainMonitorWins = nil
+}
+
+func (m *Manager) SetNonMainVisible(visible bool) {
+	rects := monitor.GetMonitorRects()[1:]
+	if len(rects) > len(m.nonMainMonitorWins) {
+		starts := len(rects) - len(m.nonMainMonitorWins)
+		for s := starts; s < len(rects); s++ {
+			w := m.AddNonMain(rects[s])
+			m.nonMainMonitorWins = append(m.nonMainMonitorWins, w)
+		}
+	}
 	for i, r := range rects {
-		MainWindow{
-			Visible:  false,
-			AssignTo: &m.nonMainMonitorWins[i],
-			Layout:   VBox{},
-			Children: []Widget{},
-		}.Create()
-		win.SetWindowLong(m.window.Handle(), win.GWL_STYLE, win.WS_BORDER)
 		win.SetWindowPos(
 			m.nonMainMonitorWins[i].Handle(),
 			win.HWND_TOPMOST,
@@ -171,9 +208,8 @@ func (m *Manager) CreateNonMain() {
 			r.Height(),
 			win.SWP_FRAMECHANGED,
 		)
-		log.Printf("non main %d %d %d %d", r.Left, r.Top, r.Width(), r.Height())
+		m.nonMainMonitorWins[i].SetVisible(visible)
 	}
-
 }
 
 func (m *Manager) CreateMain() {
