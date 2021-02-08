@@ -12,54 +12,42 @@ import (
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
 	"github.com/winglq/eyenurse/monitor"
+	"github.com/winglq/eyenurse/statemachine"
 )
 
-type Config struct {
-	WorkDuration  time.Duration
-	RestDuration  time.Duration
-	DelayDuration time.Duration
-}
-
-func NewDefaultConfig() *Config {
-	return &Config{
-		WorkDuration:  45 * time.Minute,
-		RestDuration:  5 * time.Minute,
-		DelayDuration: 5 * time.Minute,
-	}
-}
-
-func NewTestConfig() *Config {
-	return &Config{
-		WorkDuration:  1 * time.Second,
-		RestDuration:  5 * time.Second,
-		DelayDuration: 5 * time.Second,
-	}
-}
-
 type Manager struct {
-	c                          *Config
-	wChan, rChan, dChan, sChan chan struct{}
-	stopRestCh                 chan struct{}
-	Done                       chan struct{}
-	wg                         sync.WaitGroup
-	window                     *walk.MainWindow
-	nonMainMonitorWins         []*walk.MainWindow
-	te                         *walk.TextEdit
+	stopRestCh         chan struct{}
+	Done               chan struct{}
+	wg                 sync.WaitGroup
+	window             *walk.MainWindow
+	nonMainMonitorWins []*walk.MainWindow
+	te                 *walk.TextEdit
+	sm                 *statemachine.EyeNurseSM
+	o                  statemachine.Option
 }
 
 func NewManager() *Manager {
-	return &Manager{
-		//c: NewTestConfig(),
-		c:                  NewDefaultConfig(),
-		wChan:              make(chan struct{}),
-		rChan:              make(chan struct{}),
-		dChan:              make(chan struct{}),
-		sChan:              make(chan struct{}),
+	m := &Manager{
 		stopRestCh:         make(chan struct{}),
 		Done:               make(chan struct{}),
 		window:             new(walk.MainWindow),
 		nonMainMonitorWins: []*walk.MainWindow{},
 	}
+	m.o = statemachine.Option{
+		WorkSeconds:   60 * 45,
+		DelaySeconds:  60 * 5,
+		RestSeconds:   60 * 5,
+		StateChangeCB: m.onStateChange,
+	}
+	//m.o = statemachine.Option{
+	//	WorkSeconds:   5,
+	//	DelaySeconds:  5,
+	//	RestSeconds:   10,
+	//	StateChangeCB: m.onStateChange,
+	//}
+
+	m.sm = statemachine.NewEyeNurseSM(m.o)
+	return m
 }
 
 func (m *Manager) setWinsVisible(visible bool) {
@@ -67,88 +55,44 @@ func (m *Manager) setWinsVisible(visible bool) {
 	m.SetNonMainVisible(visible)
 }
 
-func (m *Manager) handle() {
-	m.wg.Done()
-	for {
-		select {
-		case <-m.wChan:
-			m.wg.Add(1)
-			go m.handleWork()
-		case <-m.rChan:
-			m.wg.Add(1)
-			go m.handleRest()
-		case <-m.dChan:
-			m.wg.Add(1)
-			go m.handleDelay()
-		case <-m.sChan:
-			m.wg.Add(1)
-			go m.handleSkip()
-		case <-m.Done:
-			fmt.Println("handle Done")
-			return
-		}
-	}
-}
-
-func (m *Manager) handleSkip() {
-	defer m.wg.Done()
-	m.stopRestCh <- struct{}{}
-	m.wChan <- struct{}{}
-}
-
-func (m *Manager) handleDelay() {
-	defer m.wg.Done()
-	m.setWinsVisible(false)
-	m.stopRestCh <- struct{}{}
-	select {
-	case <-time.After(m.c.DelayDuration):
-		m.rChan <- struct{}{}
-	case <-m.Done:
-		fmt.Println("handleWork Done")
-		return
-	}
-}
-
-func (m *Manager) handleWork() {
-	defer m.wg.Done()
-	m.setWinsVisible(false)
-	select {
-	case <-time.After(m.c.WorkDuration):
-		m.rChan <- struct{}{}
-	case <-m.Done:
-		fmt.Println("handleWork Done")
-		return
-	}
-}
-
-func (m *Manager) handleRest() {
-	defer m.wg.Done()
-	m.setWinsVisible(true)
-	t := time.NewTicker(time.Second)
-	left := int(m.c.RestDuration.Seconds())
-	m.te.SetText(fmt.Sprintf("%d", left))
-	for {
-		select {
-		case <-t.C:
-			left--
+func (m *Manager) onStateChange(s statemachine.State) {
+	switch s {
+	case statemachine.Work:
+		close(m.stopRestCh)
+		m.stopRestCh = make(chan struct{})
+		m.setWinsVisible(false)
+	case statemachine.Rest:
+		m.setWinsVisible(true)
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			t := time.NewTicker(time.Second)
+			left := m.o.RestSeconds
 			m.te.SetText(fmt.Sprintf("%d", left))
-			if left == 0 {
-				m.wChan <- struct{}{}
-				return
+			for {
+				select {
+				case <-t.C:
+					left--
+					m.te.SetText(fmt.Sprintf("%d", left))
+					if left == 0 {
+						return
+					}
+				case <-m.Done:
+					fmt.Println("handleRest Done")
+					return
+				case <-m.stopRestCh:
+					fmt.Println("handleRest Stop")
+					return
+				}
 			}
-		case <-m.Done:
-			fmt.Println("handleRest Done")
-			return
-		case <-m.stopRestCh:
-			fmt.Println("handleRest Stop")
-			return
-		}
+		}()
+	case statemachine.Delay:
+		close(m.stopRestCh)
+		m.stopRestCh = make(chan struct{})
+		m.setWinsVisible(false)
+	case statemachine.Closing:
+		os.Exit(0)
 	}
-}
-
-func (m *Manager) Close() {
-	close(m.Done)
-	m.wg.Wait()
 }
 
 func (m *Manager) AddNonMain(r w32.RECT) *walk.MainWindow {
@@ -180,13 +124,6 @@ func (m *Manager) CreateNonMain() {
 		w := m.AddNonMain(r)
 		m.nonMainMonitorWins = append(m.nonMainMonitorWins, w)
 	}
-}
-
-func (m *Manager) DestroyNonMain() {
-	for _, w := range m.nonMainMonitorWins {
-		w.Close()
-	}
-	m.nonMainMonitorWins = nil
 }
 
 func (m *Manager) SetNonMainVisible(visible bool) {
@@ -222,20 +159,19 @@ func (m *Manager) CreateMain() {
 			PushButton{
 				Text: "Delay",
 				OnClicked: func() {
-					m.dChan <- struct{}{}
+					m.sm.SendEvent(statemachine.DelayRest)
 				},
 			},
 			PushButton{
 				Text: "Skip",
 				OnClicked: func() {
-					m.sChan <- struct{}{}
+					m.sm.SendEvent(statemachine.SkipRest)
 				},
 			},
 			PushButton{
 				Text: "Quit",
 				OnClicked: func() {
-					m.Close()
-					os.Exit(0)
+					m.sm.SendEvent(statemachine.Quit)
 				},
 			},
 		},
@@ -259,16 +195,11 @@ func (m *Manager) RunWindow() {
 	m.window.Run()
 }
 
-func (m *Manager) Run() {
-	m.wg.Add(1)
-	go m.handle()
-	m.wChan <- struct{}{}
-}
-
 func main() {
 	m := NewManager()
 	m.CreateMain()
 	m.CreateNonMain()
-	m.Run()
+	time.Sleep(time.Second)
+	go m.sm.Run()
 	m.RunWindow()
 }

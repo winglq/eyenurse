@@ -1,0 +1,7 @@
+github.com/gonutz/w32 v1.0.0 h1:3t1z6ZfkFvirjFYBx9pHeHBuKoN/VBVk9yHb/m2Ll/k=
+github.com/gonutz/w32 v1.0.0/go.mod h1:Rc/YP5K9gv0FW4p6X9qL3E7Y56lfMflEol1fLElfMW4=
+github.com/lxn/walk v0.0.0-20181206152800-6d09625fb5d5 h1:8n6zjxIcK3ILNUI1S/sMwF8rXXbFLhHv5KOBblpO/ww=
+github.com/lxn/walk v0.0.0-20181206152800-6d09625fb5d5/go.mod h1:E23UucZGqpuUANJooIbHWCufXvOcT6E7Stq81gU+CSQ=
+github.com/lxn/win v0.0.0-20181015143721-a7f87360b10e h1:dz4TzIsrPe4XtUyhLkOLdCS8UkVwJKQu4WY8VcIwo3I=
+github.com/lxn/win v0.0.0-20181015143721-a7f87360b10e/go.mod h1:jACzEp9RV7NhfPJQkiCNTteU4nkZZVlvkNpYtVOZPfE=
+gopkg.in/Knetic/govaluate.v3 v3.0.0/go.mod h1:csKLBORsPbafmSCGTEh3U7Ozmsuq8ZSIlKk1bcqph0E=
