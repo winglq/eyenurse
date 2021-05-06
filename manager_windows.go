@@ -9,6 +9,7 @@ import (
 
 	"github.com/gonutz/w32"
 	"github.com/lxn/walk"
+	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
 	"github.com/winglq/eyenurse/monitor"
 	"github.com/winglq/eyenurse/statemachine"
