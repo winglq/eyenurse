@@ -40,7 +40,7 @@ func NewManager() *Manager {
 	m.o = statemachine.Option{
 		WorkSeconds:   60 * 45,
 		DelaySeconds:  60 * 5,
-		RestSeconds:   60 * 5,
+		RestSeconds:   60 * 10,
 		StateChangeCB: m.onStateChange,
 	}
 	//m.o = statemachine.Option{
@@ -70,7 +70,7 @@ func (m *Manager) onStateChange(s statemachine.State) {
 
 func (m *Manager) Run() {
 	go func() {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(2000 * time.Millisecond)
 		m.w.Hide()
 		m.sm.Run()
 	}()

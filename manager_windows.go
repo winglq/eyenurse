@@ -36,7 +36,7 @@ func NewManager() *Manager {
 	m.o = statemachine.Option{
 		WorkSeconds:   60 * 45,
 		DelaySeconds:  60 * 5,
-		RestSeconds:   60 * 5,
+		RestSeconds:   60 * 10,
 		StateChangeCB: m.onStateChange,
 	}
 	//m.o = statemachine.Option{
